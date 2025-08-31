@@ -1,29 +1,55 @@
-import React, { useState } from 'react';
-import { ArrowLeft, Search, Filter, Trash2, Edit3 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { ArrowLeft, Search, Filter, Trash2, WifiOff } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
-const Records = ({ exerciseRecords, onDelete }) => {
+const Records = () => {
   const navigate = useNavigate();
+  const [records, setRecords] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('전체');
 
+  useEffect(() => {
+    const fetchRecords = async () => {
+      try {
+        setIsLoading(true);
+        const response = await fetch('/api/records');
+
+        if (!response.ok) {
+          throw new Error(`HTTP 에러! 상태: ${response.status}`);
+        }
+
+        const data = await response.json();
+        setRecords(data);
+        setError(null);
+      } catch (err) {
+        setError("기록을 불러오는 데 실패했습니다. 네트워크 연결을 확인해주세요.");
+        console.error(err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchRecords();
+  }, []);
+
   // 필터링된 기록
-  const filteredRecords = exerciseRecords
+  const filteredRecords = records
     .filter(record => {
-      const matchesSearch = record.exerciseType.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                           record.memo.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesFilter = filterType === '전체' || record.exerciseType === filterType;
+      const matchesSearch = (record.exercise_type || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                           (record.memo || '').toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesFilter = filterType === '전체' || record.exercise_type === filterType;
       return matchesSearch && matchesFilter;
     })
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
   // 운동 종류 목록 (필터용)
-  const exerciseTypes = ['전체', ...new Set(exerciseRecords.map(record => record.exerciseType))];
+  const exerciseTypes = ['전체', ...new Set(records.map(record => record.exercise_type))];
 
   const handleDelete = (id) => {
-    if (window.confirm('이 운동 기록을 삭제하시겠습니까?')) {
-      onDelete(id);
-    }
+    // TODO: API를 이용한 삭제 기능 구현
+    alert('삭제 기능은 곧 구현될 예정입니다.');
   };
 
   const getIntensityColor = (intensity) => {
@@ -75,7 +101,17 @@ const Records = ({ exerciseRecords, onDelete }) => {
 
       {/* 기록 목록 */}
       <div className="space-y-4">
-        {filteredRecords.length > 0 ? (
+        {isLoading ? (
+          <div className="text-center text-white py-10">
+            <p>운동 기록을 불러오는 중...</p>
+          </div>
+        ) : error ? (
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative text-center" role="alert">
+            <WifiOff className="mx-auto mb-2" size={32} />
+            <strong className="font-bold">오류 발생!</strong>
+            <span className="block sm:inline"> {error}</span>
+          </div>
+        ) : filteredRecords.length > 0 ? (
           filteredRecords.map((record) => (
             <div key={record.id} className="bg-white/90 backdrop-blur-sm rounded-2xl p-4 shadow-lg">
               <div className="flex items-start justify-between">
@@ -83,7 +119,7 @@ const Records = ({ exerciseRecords, onDelete }) => {
                   {/* 날짜 및 시간대 */}
                   <div className="flex items-center space-x-2 mb-2">
                     <span className="text-sm font-medium text-gray-600">
-                      {new Date(record.createdAt).toLocaleDateString('ko-KR', {
+                      {new Date(record.created_at).toLocaleDateString('ko-KR', {
                         year: 'numeric',
                         month: 'long',
                         day: 'numeric',
@@ -91,13 +127,13 @@ const Records = ({ exerciseRecords, onDelete }) => {
                       })}
                     </span>
                     <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
-                      {record.timeOfDay}
+                      {record.time_of_day}
                     </span>
                   </div>
 
                   {/* 운동 종류 */}
                   <h3 className="text-lg font-semibold text-gray-800 mb-1">
-                    {record.exerciseType}
+                    {record.exercise_type}
                   </h3>
 
                   {/* 메모 */}
@@ -142,11 +178,11 @@ const Records = ({ exerciseRecords, onDelete }) => {
       </div>
 
       {/* 총 기록 수 */}
-      {exerciseRecords.length > 0 && (
+      {!isLoading && !error && records.length > 0 && (
         <div className="mt-6 text-center">
           <span className="text-white/80 text-sm">
-            총 {exerciseRecords.length}개의 운동 기록
-            {filteredRecords.length !== exerciseRecords.length && 
+            총 {records.length}개의 운동 기록
+            {filteredRecords.length !== records.length &&
               ` (${filteredRecords.length}개 표시)`}
           </span>
         </div>
