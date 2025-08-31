@@ -1,22 +1,28 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, g
 from src.models.user import db, User
 from src.models.friendship import Friendship
 from src.models.exercise_record import ExerciseRecord
 from datetime import datetime, timedelta
+from src.utils.validation import validate_with
+from src.validation.schemas import FriendRequestSchema, AcceptFriendRequestSchema, RemoveFriendSchema
 
 friends_bp = Blueprint('friends', __name__)
 
 @friends_bp.route('/friends/request', methods=['POST'])
+@validate_with(FriendRequestSchema)
 def send_friend_request():
-    """친구 요청 보내기"""
+    """
+    친구 요청을 보냅니다.
+
+    요청 본문 (JSON):
+    - user_id (int): 요청하는 사용자의 ID.
+    - friend_username (str): 요청받는 사용자의 이름 (3-50자).
+    """
     try:
-        data = request.get_json()
-        user_id = data.get('user_id')
-        friend_username = data.get('friend_username')
-        
-        if not user_id or not friend_username:
-            return jsonify({'error': '사용자 ID와 친구 사용자명이 필요합니다.'}), 400
-        
+        validated_data = g.validated_data
+        user_id = validated_data.user_id
+        friend_username = validated_data.friend_username
+
         # 친구 사용자 찾기
         friend = User.query.filter_by(username=friend_username).first()
         if not friend:
@@ -33,7 +39,7 @@ def send_friend_request():
         ).first()
         
         if existing_friendship:
-            return jsonify({'error': '이미 친구 관계가 존재합니다.'}), 400
+            return jsonify({'error': '이미 친구 관계가 존재합니다.'}), 409
         
         # 친구 요청 생성
         friendship = Friendship(
@@ -52,18 +58,22 @@ def send_friend_request():
         
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        current_app.logger.error(f"친구 요청 처리 중 서버 오류: {e}", exc_info=True)
+        return jsonify({'error': '서버 내부 오류가 발생했습니다.'}), 500
 
 @friends_bp.route('/friends/accept', methods=['POST'])
+@validate_with(AcceptFriendRequestSchema)
 def accept_friend_request():
-    """친구 요청 수락"""
+    """
+    친구 요청을 수락합니다.
+
+    요청 본문 (JSON):
+    - friendship_id (int): 수락할 친구 관계의 ID.
+    """
     try:
-        data = request.get_json()
-        friendship_id = data.get('friendship_id')
-        
-        if not friendship_id:
-            return jsonify({'error': '친구 관계 ID가 필요합니다.'}), 400
-        
+        validated_data = g.validated_data
+        friendship_id = validated_data.friendship_id
+
         friendship = Friendship.query.get_or_404(friendship_id)
         
         if friendship.status != 'pending':
@@ -81,7 +91,8 @@ def accept_friend_request():
         
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        current_app.logger.error(f"친구 요청 수락 중 서버 오류: {e}", exc_info=True)
+        return jsonify({'error': '서버 내부 오류가 발생했습니다.'}), 500
 
 @friends_bp.route('/friends/<int:user_id>', methods=['GET'])
 def get_friends(user_id):
@@ -180,16 +191,20 @@ def get_leaderboard(user_id):
         return jsonify({'error': str(e)}), 500
 
 @friends_bp.route('/friends/remove', methods=['DELETE'])
+@validate_with(RemoveFriendSchema)
 def remove_friend():
-    """친구 관계 삭제"""
+    """
+    친구 관계를 삭제합니다.
+
+    요청 본문 (JSON):
+    - user_id (int): 현재 사용자의 ID.
+    - friend_id (int): 삭제할 친구의 ID.
+    """
     try:
-        data = request.get_json()
-        user_id = data.get('user_id')
-        friend_id = data.get('friend_id')
-        
-        if not user_id or not friend_id:
-            return jsonify({'error': '사용자 ID와 친구 ID가 필요합니다.'}), 400
-        
+        validated_data = g.validated_data
+        user_id = validated_data.user_id
+        friend_id = validated_data.friend_id
+
         # 친구 관계 찾기
         friendship = Friendship.query.filter(
             ((Friendship.user_id == user_id) & (Friendship.friend_id == friend_id)) |
@@ -206,5 +221,6 @@ def remove_friend():
         
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        current_app.logger.error(f"친구 삭제 처리 중 서버 오류: {e}", exc_info=True)
+        return jsonify({'error': '서버 내부 오류가 발생했습니다.'}), 500
 
