@@ -1,33 +1,31 @@
-from flask import Blueprint, request, current_app
+from flask import Blueprint, request, jsonify, g, current_app
 from src.models.user import db, User
 from src.models.friendship import Friendship
 from src.utils.response import api_success, api_error
 from src.utils.db_helpers import get_user_weekly_score
 from src.models.exercise_record import ExerciseRecord
 from datetime import datetime, timedelta
+from src.utils.validation import validate_with
+from src.validation.schemas import FriendRequestSchema, AcceptFriendRequestSchema, RemoveFriendSchema
 
 friends_bp = Blueprint('friends', __name__)
 
 @friends_bp.route('/friends/request', methods=['POST'])
+@validate_with(FriendRequestSchema)
 def send_friend_request():
     """
-    한 사용자에게서 다른 사용자에게 친구 요청을 보냅니다.
+    친구 요청을 보냅니다.
 
-    요청 본문에는 요청하는 `user_id`와 요청받는 `friend_username`이 포함되어야 합니다.
-    자기 자신에게 요청하거나, 이미 친구 관계이거나, 사용자를 찾을 수 없는 경우 등
-    다양한 예외 상황을 처리합니다.
+    요청 본문 (JSON):
+    - user_id (int): 요청하는 사용자의 ID.
+    - friend_username (str): 요청받는 사용자의 이름 (3-50자).
     """
     try:
-        data = request.get_json()
-        if not data:
-            return api_error(message="잘못된 요청입니다. JSON 본문이 필요합니다.")
+        validated_data = g.validated_data
+        user_id = validated_data.user_id
+        friend_username = validated_data.friend_username
 
-        user_id = data.get('user_id')
-        friend_username = data.get('friend_username')
-        
-        if not user_id or not friend_username:
-            return api_error(message="사용자 ID와 친구 사용자명이 필요합니다.")
-        
+        # 친구 사용자 찾기
         friend = User.query.filter_by(username=friend_username).first()
         if not friend:
             return api_error(message="해당 사용자를 찾을 수 없습니다.", status_code=404)
@@ -43,7 +41,12 @@ def send_friend_request():
         if existing_friendship:
             return api_error(message=f"이미 친구 관계가 존재하거나 요청 대기 중입니다: {existing_friendship.status}", status_code=409)
         
-        friendship = Friendship(user_id=user_id, friend_id=friend.id, status='pending')
+        # 친구 요청 생성
+        friendship = Friendship(
+            user_id=user_id,
+            friend_id=friend.id,
+            status='pending'
+        )
         db.session.add(friendship)
         db.session.commit()
         
@@ -52,27 +55,22 @@ def send_friend_request():
         
     except Exception as e:
         db.session.rollback()
-        current_app.logger.error(f"친구 요청 처리 중 오류 발생: {e}", exc_info=True)
+        current_app.logger.error(f"친구 요청 처리 중 서버 오류: {e}", exc_info=True)
         return api_error(message="친구 요청 처리 중 서버 오류가 발생했습니다.", status_code=500)
 
 @friends_bp.route('/friends/accept', methods=['POST'])
+@validate_with(AcceptFriendRequestSchema)
 def accept_friend_request():
     """
-    대기 중인 친구 요청을 수락합니다.
+    친구 요청을 수락합니다.
 
-    요청 본문에는 수락할 `friendship_id`가 포함되어야 합니다.
-    요청이 'pending' 상태가 아닐 경우 에러를 반환합니다.
+    요청 본문 (JSON):
+    - friendship_id (int): 수락할 친구 관계의 ID.
     """
     try:
-        data = request.get_json()
-        if not data:
-            return api_error(message="잘못된 요청입니다. JSON 본문이 필요합니다.")
+        validated_data = g.validated_data
+        friendship_id = validated_data.friendship_id
 
-        friendship_id = data.get('friendship_id')
-        
-        if not friendship_id:
-            return api_error(message="친구 관계 ID가 필요합니다.")
-        
         friendship = Friendship.query.get_or_404(friendship_id)
         
         if friendship.status != 'pending':
@@ -88,7 +86,7 @@ def accept_friend_request():
         
     except Exception as e:
         db.session.rollback()
-        current_app.logger.error(f"친구 요청 수락 중 오류 발생: {e}", exc_info=True)
+        current_app.logger.error(f"친구 요청 수락 중 서버 오류: {e}", exc_info=True)
         return api_error(message="친구 요청 수락 중 서버 오류가 발생했습니다.", status_code=500)
 
 @friends_bp.route('/friends/<int:user_id>', methods=['GET'])
@@ -173,24 +171,21 @@ def get_leaderboard(user_id):
         return api_error(message="리더보드 조회 중 서버 오류가 발생했습니다.", status_code=500)
 
 @friends_bp.route('/friends/remove', methods=['DELETE'])
+@validate_with(RemoveFriendSchema)
 def remove_friend():
     """
-    두 사용자 간의 친구 관계를 삭제합니다.
+    친구 관계를 삭제합니다.
 
-    요청 본문에는 `user_id`와 `friend_id`가 포함되어야 합니다.
-    해당하는 친구 관계를 찾아 데이터베이스에서 삭제합니다.
+    요청 본문 (JSON):
+    - user_id (int): 현재 사용자의 ID.
+    - friend_id (int): 삭제할 친구의 ID.
     """
     try:
-        data = request.get_json()
-        if not data:
-            return api_error(message="잘못된 요청입니다. JSON 본문이 필요합니다.")
+        validated_data = g.validated_data
+        user_id = validated_data.user_id
+        friend_id = validated_data.friend_id
 
-        user_id = data.get('user_id')
-        friend_id = data.get('friend_id')
-        
-        if not user_id or not friend_id:
-            return api_error(message="사용자 ID와 친구 ID가 필요합니다.")
-        
+        # 친구 관계 찾기
         friendship = Friendship.query.filter(
             ((Friendship.user_id == user_id) & (Friendship.friend_id == friend_id)) |
             ((Friendship.user_id == friend_id) & (Friendship.friend_id == user_id))
@@ -208,6 +203,5 @@ def remove_friend():
         
     except Exception as e:
         db.session.rollback()
-        current_app.logger.error(f"친구 삭제 처리 중 오류 발생: {e}", exc_info=True)
+        current_app.logger.error(f"친구 삭제 처리 중 서버 오류: {e}", exc_info=True)
         return api_error(message="친구 삭제 처리 중 서버 오류가 발생했습니다.", status_code=500)
-
