@@ -14,9 +14,16 @@ from src.routes.exercise import exercise_bp
 from src.routes.friends import friends_bp
 from src.routes.statistics import statistics_bp
 from src.routes.records import records_bp
+from config import Config
+
+import logging
 
 app = Flask(__name__, static_folder=os.path.join(os.path.dirname(__file__), 'static'))
-app.config['SECRET_KEY'] = 'asdf#FGSgvasgf$5$WGT'
+app.config.from_object(Config)
+
+# 로깅 설정
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]')
+app.logger.info("애플리케이션 시작")
 
 # CORS 설정 - 모든 도메인에서 접근 허용
 CORS(app)
@@ -28,9 +35,7 @@ app.register_blueprint(friends_bp, url_prefix='/api')
 app.register_blueprint(statistics_bp, url_prefix='/api')
 app.register_blueprint(records_bp, url_prefix='/api')
 
-# 데이터베이스 설정
-app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{os.path.join(os.path.dirname(__file__), 'database', 'app.db')}"
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+# 데이터베이스 초기화
 db.init_app(app)
 
 with app.app_context():
@@ -39,9 +44,15 @@ with app.app_context():
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve(path):
+    """
+    React 애플리케이션의 정적 파일들을 제공합니다.
+    요청된 경로에 파일이 존재하면 해당 파일을, 그렇지 않으면 index.html을 반환하여
+    클라이언트 사이드 라우팅을 지원합니다.
+    """
     static_folder_path = app.static_folder
     if static_folder_path is None:
-            return "Static folder not configured", 404
+        app.logger.error("정적 폴더가 설정되지 않았습니다.")
+        return "Static folder not configured", 404
 
     if path != "" and os.path.exists(os.path.join(static_folder_path, path)):
         return send_from_directory(static_folder_path, path)
@@ -50,24 +61,31 @@ def serve(path):
         if os.path.exists(index_path):
             return send_from_directory(static_folder_path, 'index.html')
         else:
+            app.logger.error("index.html 파일을 찾을 수 없습니다.")
             return "index.html not found", 404
 
 # 공통 에러 핸들러
 @app.errorhandler(NotFound)
 def handle_not_found(e):
+    """404 Not Found 에러를 처리합니다."""
+    app.logger.warning(f"요청한 리소스를 찾을 수 없습니다: {e.description}")
     return jsonify(error=f"리소스를 찾을 수 없습니다: {e.description}"), 404
 
 @app.errorhandler(InternalServerError)
 def handle_internal_server_error(e):
+    """500 Internal Server Error를 처리합니다."""
+    app.logger.error(f"서버 내부 오류 발생: {e}")
     return jsonify(error="서버 내부 오류가 발생했습니다."), 500
 
 @app.errorhandler(Exception)
 def handle_general_exception(e):
-    # 그 외 모든 예외 처리
+    """처리되지 않은 모든 예외를 처리합니다."""
+    app.logger.error(f"예상치 못한 오류 발생: {e}", exc_info=True)
     return jsonify(error=f"예상치 못한 오류가 발생했습니다: {str(e)}"), 500
 
 @app.route('/api/health')
 def health_check():
+    """API 서버의 상태를 확인하는 엔드포인트입니다."""
     return {'status': 'healthy', 'message': '운동 강도 측정 API 서버가 정상 작동 중입니다.'}
 
 if __name__ == '__main__':

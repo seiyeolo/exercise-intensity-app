@@ -1,8 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, UserPlus, Trophy, TrendingUp, Users, WifiOff } from 'lucide-react';
+import PropTypes from 'prop-types';
+import { ArrowLeft, UserPlus, Trophy, Users, WifiOff } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { TEXTS, SETTINGS, API_BASE_URL } from './constants';
+import Card from './Card';
 
+/**
+ * 친구 관련 정보(리더보드, 친구 목록)를 표시하는 페이지 컴포넌트입니다.
+ * @returns {JSX.Element} Friends 페이지의 JSX 엘리먼트
+ */
 const Friends = () => {
   const navigate = useNavigate();
   const [friends, setFriends] = useState([]);
@@ -10,31 +16,34 @@ const Friends = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // 임시 사용자 ID. 실제 앱에서는 인증된 사용자 ID를 사용해야 합니다.
-  const currentUserId = 1;
-
   useEffect(() => {
+    /**
+     * 친구 목록과 리더보드 데이터를 서버로부터 비동기적으로 가져옵니다.
+     */
     const fetchData = async () => {
       try {
         setIsLoading(true);
-        // 친구 목록과 리더보드 데이터를 병렬로 가져옵니다.
         const [friendsResponse, leaderboardResponse] = await Promise.all([
-          fetch(`/api/friends/${currentUserId}`),
-          fetch(`/api/friends/leaderboard/${currentUserId}`)
+          fetch(`${API_BASE_URL}/friends/${SETTINGS.CURRENT_USER_ID}`),
+          fetch(`${API_BASE_URL}/friends/leaderboard/${SETTINGS.CURRENT_USER_ID}`)
         ]);
 
         if (!friendsResponse.ok || !leaderboardResponse.ok) {
           throw new Error('데이터를 불러오는 데 실패했습니다.');
         }
 
-        const friendsData = await friendsResponse.json();
-        const leaderboardData = await leaderboardResponse.json();
+        const friendsResult = await friendsResponse.json();
+        const leaderboardResult = await leaderboardResponse.json();
 
-        setFriends(friendsData.friends || []);
-        setLeaderboard(leaderboardData.leaderboard || []);
-        setError(null);
+        if (friendsResult.status === 'success' && leaderboardResult.status === 'success') {
+          setFriends(friendsResult.data.friends || []);
+          setLeaderboard(leaderboardResult.data.leaderboard || []);
+          setError(null);
+        } else {
+          throw new Error(friendsResult.message || leaderboardResult.message || TEXTS.ERROR_LOADING_FRIENDS);
+        }
       } catch (err) {
-        setError("친구 정보를 불러오지 못했습니다. 네트워크 연결을 확인해주세요.");
+        setError(TEXTS.ERROR_LOADING_FRIENDS);
         console.error(err);
       } finally {
         setIsLoading(false);
@@ -42,25 +51,19 @@ const Friends = () => {
     };
 
     fetchData();
-  }, [currentUserId]);
+  }, []);
 
-  // 친구 비교 차트 데이터 (모의 데이터)
-  const comparisonData = [
-    { day: '월', user: 5, friend: 4 },
-    { day: '화', user: 7, friend: 6 },
-    { day: '수', user: 6, friend: 8 },
-    { day: '목', user: 8, friend: 7 },
-    { day: '금', user: 9, friend: 6 },
-    { day: '토', user: 7, friend: 9 },
-    { day: '일', user: 6, friend: 8 }
-  ];
-
-  // 모의 도전 과제
-  const challenges = [
-    { id: 1, title: '이번 주 5회 운동하기', progress: 60, target: 5, current: 3 },
-    { id: 2, title: '평균 강도 7 이상 유지', progress: 85, target: 7, current: 6.8 },
-    { id: 3, title: '친구와 함께 운동하기', progress: 30, target: 3, current: 1 }
-  ];
+  /**
+   * 사용자의 순위에 따라 다른 스타일의 뱃지를 반환합니다.
+   * @param {number} rank - 사용자의 순위
+   * @returns {string} Tailwind CSS 클래스 문자열
+   */
+  const getRankBadgeClass = (rank) => {
+    if (rank === 1) return 'bg-yellow-400 text-white';
+    if (rank === 2) return 'bg-gray-400 text-white';
+    if (rank === 3) return 'bg-orange-400 text-white';
+    return 'bg-gray-200 text-gray-600';
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-400 to-green-400 p-4 pb-20">
@@ -69,31 +72,30 @@ const Friends = () => {
         <button onClick={() => navigate('/')} className="text-white">
           <ArrowLeft size={24} />
         </button>
-        <h1 className="text-xl font-bold text-white">친구</h1>
+        <h1 className="text-xl font-bold text-white">{TEXTS.FRIENDS_TITLE}</h1>
         <button className="text-white">
           <UserPlus size={24} />
         </button>
       </div>
 
       {/* 에러 메시지 */}
-      {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative text-center mb-6" role="alert">
+      {error && !isLoading && (
+        <Card className="p-4 mb-6 bg-red-100 border border-red-400 text-red-700 text-center" role="alert">
           <WifiOff className="mx-auto mb-2" size={32} />
-          <strong className="font-bold">오류 발생!</strong>
+          <strong className="font-bold">{TEXTS.ERROR_GENERAL}</strong>
           <span className="block sm:inline"> {error}</span>
-        </div>
+        </Card>
       )}
 
       {/* 리더보드 */}
-      <div className="bg-white/90 backdrop-blur-sm rounded-2xl p-6 mb-6 shadow-lg">
+      <Card className="p-6 mb-6">
         <div className="flex items-center space-x-2 mb-4">
           <Trophy size={24} className="text-yellow-500" />
-          <h2 className="text-lg font-semibold text-gray-800">이번 주 리더보드</h2>
+          <h2 className="text-lg font-semibold text-gray-800">{TEXTS.LEADERBOARD_TITLE}</h2>
         </div>
-        
         <div className="space-y-3">
           {isLoading ? (
-            <p className="text-center text-gray-500">리더보드를 불러오는 중...</p>
+            <p className="text-center text-gray-500">{TEXTS.LOADING_LEADERBOARD}</p>
           ) : leaderboard.length > 0 ? (
             leaderboard.map((item) => (
               <div
@@ -103,11 +105,7 @@ const Friends = () => {
                 }`}
               >
                 <div className="flex items-center space-x-3">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                    item.rank === 1 ? 'bg-yellow-400 text-white' :
-                    item.rank === 2 ? 'bg-gray-400 text-white' :
-                    item.rank === 3 ? 'bg-orange-400 text-white' : 'bg-gray-200 text-gray-600'
-                  }`}>
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${getRankBadgeClass(item.rank)}`}>
                     {item.rank}
                   </div>
                   <div>
@@ -125,28 +123,25 @@ const Friends = () => {
             <p className="text-center text-gray-500">리더보드 정보가 없습니다.</p>
           )}
         </div>
-      </div>
+      </Card>
 
       {/* 친구 목록 */}
-      <div className="bg-white/90 backdrop-blur-sm rounded-2xl p-6 shadow-lg">
+      <Card className="p-6">
         <div className="flex items-center space-x-2 mb-4">
           <Users size={24} className="text-purple-500" />
-          <h2 className="text-lg font-semibold text-gray-800">친구 목록</h2>
+          <h2 className="text-lg font-semibold text-gray-800">{TEXTS.FRIENDS_LIST_TITLE}</h2>
         </div>
-        
         <div className="space-y-3">
           {isLoading ? (
-            <p className="text-center text-gray-500">친구 목록을 불러오는 중...</p>
+            <p className="text-center text-gray-500">{TEXTS.LOADING_FRIENDS_LIST}</p>
           ) : friends.length > 0 ? (
             friends.map((friend) => (
               <div key={friend.id} className="flex items-center justify-between p-3 hover:bg-gray-50 rounded-lg transition-colors">
                 <div className="flex items-center space-x-3">
                   <div className="relative">
                     <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center text-lg">
-                      {/* 아바타는 임시로 첫 글자로 대체 */}
                       {friend.username.charAt(0).toUpperCase()}
                     </div>
-                    {/* 온라인 상태는 현재 API에 없으므로 임의로 표시 */}
                     <div className={`absolute -bottom-1 -right-1 w-3 h-3 rounded-full border-2 border-white ${
                       Math.random() > 0.5 ? 'bg-green-400' : 'bg-gray-400'
                     }`}></div>
@@ -165,10 +160,12 @@ const Friends = () => {
             <p className="text-center text-gray-500">친구 정보가 없습니다.</p>
           )}
         </div>
-      </div>
+      </Card>
     </div>
   );
 };
+
+Friends.propTypes = {}; // Friends 컴포넌트는 부모로부터 받는 props가 없으므로 비워둡니다.
 
 export default Friends;
 
