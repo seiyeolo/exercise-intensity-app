@@ -52,7 +52,7 @@ def send_friend_request():
         
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        return jsonify(error=f"친구 요청 처리 중 오류 발생: {str(e)}"), 500
 
 @friends_bp.route('/friends/accept', methods=['POST'])
 def accept_friend_request():
@@ -81,7 +81,7 @@ def accept_friend_request():
         
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        return jsonify(error=f"친구 요청 수락 중 오류 발생: {str(e)}"), 500
 
 @friends_bp.route('/friends/<int:user_id>', methods=['GET'])
 def get_friends(user_id):
@@ -123,7 +123,7 @@ def get_friends(user_id):
         }), 200
         
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify(error=f"친구 목록 조회 중 오류 발생: {str(e)}"), 500
 
 @friends_bp.route('/friends/leaderboard/<int:user_id>', methods=['GET'])
 def get_leaderboard(user_id):
@@ -177,7 +177,7 @@ def get_leaderboard(user_id):
         }), 200
         
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify(error=f"리더보드 조회 중 오류 발생: {str(e)}"), 500
 
 @friends_bp.route('/friends/remove', methods=['DELETE'])
 def remove_friend():
@@ -206,5 +206,5 @@ def remove_friend():
         
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        return jsonify(error=f"친구 삭제 처리 중 오류 발생: {str(e)}"), 500
 
