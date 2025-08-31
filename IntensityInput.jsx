@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import PropTypes from 'prop-types';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save } from 'lucide-react';
 
@@ -172,6 +173,10 @@ const IntensityInput = ({ onSave }) => {
       </div>
     </div>
   );
+};
+
+IntensityInput.propTypes = {
+  onSave: PropTypes.func.isRequired,
 };
 
 export default IntensityInput;

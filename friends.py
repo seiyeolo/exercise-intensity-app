@@ -1,6 +1,8 @@
-from flask import Blueprint, request, jsonify, g
+from flask import Blueprint, request, jsonify, g, current_app
 from src.models.user import db, User
 from src.models.friendship import Friendship
+from src.utils.response import api_success, api_error
+from src.utils.db_helpers import get_user_weekly_score
 from src.models.exercise_record import ExerciseRecord
 from datetime import datetime, timedelta
 from src.utils.validation import validate_with
@@ -26,20 +28,18 @@ def send_friend_request():
         # 친구 사용자 찾기
         friend = User.query.filter_by(username=friend_username).first()
         if not friend:
-            return jsonify({'error': '해당 사용자를 찾을 수 없습니다.'}), 404
+            return api_error(message="해당 사용자를 찾을 수 없습니다.", status_code=404)
         
-        # 자기 자신에게 친구 요청 방지
-        if user_id == friend.id:
-            return jsonify({'error': '자기 자신에게는 친구 요청을 보낼 수 없습니다.'}), 400
+        if int(user_id) == friend.id:
+            return api_error(message="자기 자신에게는 친구 요청을 보낼 수 없습니다.")
         
-        # 이미 친구 관계가 있는지 확인
         existing_friendship = Friendship.query.filter(
             ((Friendship.user_id == user_id) & (Friendship.friend_id == friend.id)) |
             ((Friendship.user_id == friend.id) & (Friendship.friend_id == user_id))
         ).first()
         
         if existing_friendship:
-            return jsonify({'error': '이미 친구 관계가 존재합니다.'}), 409
+            return api_error(message=f"이미 친구 관계가 존재하거나 요청 대기 중입니다: {existing_friendship.status}", status_code=409)
         
         # 친구 요청 생성
         friendship = Friendship(
@@ -47,19 +47,16 @@ def send_friend_request():
             friend_id=friend.id,
             status='pending'
         )
-        
         db.session.add(friendship)
         db.session.commit()
         
-        return jsonify({
-            'message': '친구 요청이 성공적으로 전송되었습니다.',
-            'friendship': friendship.to_dict()
-        }), 201
+        current_app.logger.info(f"사용자 {user_id}가 {friend.id}에게 친구 요청을 보냈습니다.")
+        return api_success(data=friendship.to_dict(), message="친구 요청이 성공적으로 전송되었습니다.", status_code=201)
         
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"친구 요청 처리 중 서버 오류: {e}", exc_info=True)
-        return jsonify({'error': '서버 내부 오류가 발생했습니다.'}), 500
+        return api_error(message="친구 요청 처리 중 서버 오류가 발생했습니다.", status_code=500)
 
 @friends_bp.route('/friends/accept', methods=['POST'])
 @validate_with(AcceptFriendRequestSchema)
@@ -77,50 +74,44 @@ def accept_friend_request():
         friendship = Friendship.query.get_or_404(friendship_id)
         
         if friendship.status != 'pending':
-            return jsonify({'error': '대기 중인 친구 요청이 아닙니다.'}), 400
+            return api_error(message="대기 중인 친구 요청이 아닙니다.")
         
         friendship.status = 'accepted'
         friendship.updated_at = datetime.utcnow()
         
         db.session.commit()
         
-        return jsonify({
-            'message': '친구 요청이 수락되었습니다.',
-            'friendship': friendship.to_dict()
-        }), 200
+        current_app.logger.info(f"친구 요청 {friendship.id}가 수락되었습니다.")
+        return api_success(data=friendship.to_dict(), message="친구 요청이 수락되었습니다.")
         
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"친구 요청 수락 중 서버 오류: {e}", exc_info=True)
-        return jsonify({'error': '서버 내부 오류가 발생했습니다.'}), 500
+        return api_error(message="친구 요청 수락 중 서버 오류가 발생했습니다.", status_code=500)
 
 @friends_bp.route('/friends/<int:user_id>', methods=['GET'])
 def get_friends(user_id):
-    """사용자의 친구 목록 조회"""
+    """
+    특정 사용자의 모든 친구 목록을 조회합니다.
+
+    'accepted' 상태인 친구 관계만 조회하여, 각 친구의 정보와
+    최근 7일간의 운동 점수를 계산하여 함께 반환합니다.
+    """
     try:
-        # 수락된 친구 관계만 조회
         friendships = db.session.query(Friendship).filter(
             ((Friendship.user_id == user_id) | (Friendship.friend_id == user_id)) &
             (Friendship.status == 'accepted')
         ).all()
         
-        friends = []
+        friends_list = []
         for friendship in friendships:
-            # 친구 ID 결정
             friend_id = friendship.friend_id if friendship.user_id == user_id else friendship.user_id
             friend = User.query.get(friend_id)
             
             if friend:
-                # 친구의 최근 운동 통계 계산
-                week_ago = datetime.now() - timedelta(days=7)
-                recent_records = ExerciseRecord.query.filter(
-                    ExerciseRecord.user_id == friend_id,
-                    ExerciseRecord.created_at >= week_ago
-                ).all()
+                weekly_score = get_user_weekly_score(friend_id)
                 
-                weekly_score = sum(record.intensity for record in recent_records)
-                
-                friends.append({
+                friends_list.append({
                     'id': friend.id,
                     'username': friend.username,
                     'email': friend.email,
@@ -128,45 +119,35 @@ def get_friends(user_id):
                     'friendship_since': friendship.created_at.isoformat()
                 })
         
-        return jsonify({
-            'friends': friends,
-            'total_count': len(friends)
-        }), 200
+        return api_success(data={'friends': friends_list, 'total_count': len(friends_list)}, message="친구 목록 조회 성공")
         
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        current_app.logger.error(f"사용자 {user_id}의 친구 목록 조회 중 오류 발생: {e}", exc_info=True)
+        return api_error(message="친구 목록 조회 중 서버 오류가 발생했습니다.", status_code=500)
 
 @friends_bp.route('/friends/leaderboard/<int:user_id>', methods=['GET'])
 def get_leaderboard(user_id):
-    """친구들과의 리더보드 조회"""
+    """
+    사용자와 친구들의 주간 운동 점수를 기반으로 리더보드를 생성합니다.
+
+    사용자 본인과 모든 친구의 최근 7일간 운동 강도 총합을 계산하여
+    점수가 높은 순으로 정렬된 리더보드를 반환합니다.
+    """
     try:
-        # 사용자의 친구들 ID 가져오기
         friendships = db.session.query(Friendship).filter(
             ((Friendship.user_id == user_id) | (Friendship.friend_id == user_id)) &
             (Friendship.status == 'accepted')
         ).all()
         
-        friend_ids = []
-        for friendship in friendships:
-            friend_id = friendship.friend_id if friendship.user_id == user_id else friendship.user_id
-            friend_ids.append(friend_id)
-        
-        # 사용자 본인도 포함
+        friend_ids = [f.friend_id if f.user_id == user_id else f.user_id for f in friendships]
         all_user_ids = [user_id] + friend_ids
         
-        # 최근 7일간의 운동 점수 계산
-        week_ago = datetime.now() - timedelta(days=7)
         leaderboard = []
         
         for uid in all_user_ids:
             user = User.query.get(uid)
             if user:
-                recent_records = ExerciseRecord.query.filter(
-                    ExerciseRecord.user_id == uid,
-                    ExerciseRecord.created_at >= week_ago
-                ).all()
-                
-                weekly_score = sum(record.intensity for record in recent_records)
+                weekly_score = get_user_weekly_score(uid)
                 
                 leaderboard.append({
                     'user_id': uid,
@@ -175,20 +156,19 @@ def get_leaderboard(user_id):
                     'is_current_user': uid == user_id
                 })
         
-        # 점수 순으로 정렬
         leaderboard.sort(key=lambda x: x['weekly_score'], reverse=True)
         
-        # 순위 추가
         for i, entry in enumerate(leaderboard):
             entry['rank'] = i + 1
         
-        return jsonify({
-            'leaderboard': leaderboard,
-            'total_participants': len(leaderboard)
-        }), 200
+        return api_success(
+            data={'leaderboard': leaderboard, 'total_participants': len(leaderboard)},
+            message="리더보드 조회 성공"
+        )
         
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        current_app.logger.error(f"사용자 {user_id}의 리더보드 조회 중 오류 발생: {e}", exc_info=True)
+        return api_error(message="리더보드 조회 중 서버 오류가 발생했습니다.", status_code=500)
 
 @friends_bp.route('/friends/remove', methods=['DELETE'])
 @validate_with(RemoveFriendSchema)
@@ -212,15 +192,16 @@ def remove_friend():
         ).first()
         
         if not friendship:
-            return jsonify({'error': '친구 관계를 찾을 수 없습니다.'}), 404
+            return api_error(message="친구 관계를 찾을 수 없습니다.", status_code=404)
         
+        friendship_id_log = friendship.id
         db.session.delete(friendship)
         db.session.commit()
         
-        return jsonify({'message': '친구 관계가 성공적으로 삭제되었습니다.'}), 200
+        current_app.logger.info(f"친구 관계 {friendship_id_log} (사용자 {user_id}와 {friend_id} 사이)가 삭제되었습니다.")
+        return api_success(message="친구 관계가 성공적으로 삭제되었습니다.")
         
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"친구 삭제 처리 중 서버 오류: {e}", exc_info=True)
-        return jsonify({'error': '서버 내부 오류가 발생했습니다.'}), 500
-
+        return api_error(message="친구 삭제 처리 중 서버 오류가 발생했습니다.", status_code=500)
