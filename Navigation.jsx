@@ -1,4 +1,5 @@
 import React from 'react';
+import PropTypes from 'prop-types';
 import { Link } from 'react-router-dom';
 import { Home, FileText, BarChart3, Users, Settings } from 'lucide-react';
 
@@ -30,6 +31,8 @@ const Navigation = () => {
     </nav>
   );
 };
+
+Navigation.propTypes = {};
 
 export default Navigation;
 

@@ -1,15 +1,34 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import PropTypes from 'prop-types';
 import { ArrowLeft, TrendingUp, Target, Calendar, Award } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
+import { API_BASE_URL } from './constants';
 
-const Statistics = ({ exerciseRecords }) => {
+const Statistics = () => {
   const navigate = useNavigate();
+  const [records, setRecords] = useState([]);
   const [selectedPeriod, setSelectedPeriod] = useState('주');
+
+  useEffect(() => {
+    const fetchRecords = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/records`);
+        if (!response.ok) throw new Error('Failed to fetch records');
+        const result = await response.json();
+        if (result.status === 'success') {
+          setRecords(result.data);
+        }
+      } catch (error) {
+        console.error("Error fetching records for statistics:", error);
+      }
+    };
+    fetchRecords();
+  }, []);
 
   // 통계 데이터 계산
   const statistics = useMemo(() => {
-    if (exerciseRecords.length === 0) {
+    if (records.length === 0) {
       return {
         averageIntensity: 0,
         maxIntensity: 0,
@@ -20,10 +39,10 @@ const Statistics = ({ exerciseRecords }) => {
       };
     }
 
-    const totalIntensity = exerciseRecords.reduce((sum, record) => sum + record.intensity, 0);
-    const averageIntensity = (totalIntensity / exerciseRecords.length).toFixed(1);
-    const maxIntensity = Math.max(...exerciseRecords.map(record => record.intensity));
-    const totalWorkouts = exerciseRecords.length;
+    const totalIntensity = records.reduce((sum, record) => sum + record.intensity, 0);
+    const averageIntensity = (totalIntensity / records.length).toFixed(1);
+    const maxIntensity = Math.max(...records.map(record => record.intensity));
+    const totalWorkouts = records.length;
 
     // 일관성 점수 계산 (최근 7일 중 운동한 날의 비율)
     const last7Days = Array.from({ length: 7 }, (_, i) => {
@@ -32,12 +51,12 @@ const Statistics = ({ exerciseRecords }) => {
       return date.toISOString().split('T')[0];
     });
     
-    const workoutDays = new Set(exerciseRecords.map(record => record.date));
+    const workoutDays = new Set(records.map(record => record.date));
     const consistency = Math.round((last7Days.filter(day => workoutDays.has(day)).length / 7) * 100);
 
     // 차트 데이터 생성 (최근 7일)
     const chartData = last7Days.reverse().map(date => {
-      const dayRecords = exerciseRecords.filter(record => record.date === date);
+      const dayRecords = records.filter(record => record.date === date);
       const avgIntensity = dayRecords.length > 0 
         ? dayRecords.reduce((sum, record) => sum + record.intensity, 0) / dayRecords.length 
         : 0;
@@ -49,8 +68,8 @@ const Statistics = ({ exerciseRecords }) => {
     });
 
     // 시간대별 운동 빈도 데이터
-    const timeOfDayCount = exerciseRecords.reduce((acc, record) => {
-      acc[record.timeOfDay] = (acc[record.timeOfDay] || 0) + 1;
+    const timeOfDayCount = records.reduce((acc, record) => {
+      acc[record.time_of_day] = (acc[record.time_of_day] || 0) + 1;
       return acc;
     }, {});
 
@@ -67,7 +86,7 @@ const Statistics = ({ exerciseRecords }) => {
       chartData,
       timeOfDayData
     };
-  }, [exerciseRecords]);
+  }, [records]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-400 to-green-400 p-4 pb-20">
@@ -214,6 +233,8 @@ const Statistics = ({ exerciseRecords }) => {
     </div>
   );
 };
+
+Statistics.propTypes = {};
 
 export default Statistics;
 

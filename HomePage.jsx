@@ -1,22 +1,48 @@
-import React from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import PropTypes from 'prop-types';
 import { Link } from 'react-router-dom';
 import { Plus, Activity } from 'lucide-react';
+import { API_BASE_URL } from './constants';
 
-const HomePage = ({ exerciseRecords }) => {
-  // 오늘의 운동 기록 계산
-  const today = new Date().toDateString();
-  const todayRecords = exerciseRecords.filter(record => 
-    new Date(record.createdAt).toDateString() === today
-  );
+const HomePage = () => {
+  const [records, setRecords] = useState([]);
   
-  const todayAverage = todayRecords.length > 0 
-    ? (todayRecords.reduce((sum, record) => sum + record.intensity, 0) / todayRecords.length).toFixed(1)
-    : 0;
+  useEffect(() => {
+    const fetchRecords = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/records`);
+        if (!response.ok) throw new Error('Failed to fetch records');
+        const result = await response.json();
+        if (result.status === 'success') {
+          setRecords(result.data);
+        }
+      } catch (error) {
+        console.error("Error fetching records for homepage:", error);
+      }
+    };
+    fetchRecords();
+  }, []);
 
-  // 최근 운동 기록 (최대 3개)
-  const recentRecords = exerciseRecords
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-    .slice(0, 3);
+  const { todayAverage, todayRecordCount, recentRecords } = useMemo(() => {
+    const today = new Date().toDateString();
+    const todayRecords = records.filter(record =>
+      new Date(record.created_at).toDateString() === today
+    );
+
+    const avg = todayRecords.length > 0
+      ? (todayRecords.reduce((sum, record) => sum + record.intensity, 0) / todayRecords.length).toFixed(1)
+      : 0;
+
+    const recent = records
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+      .slice(0, 3);
+
+    return {
+      todayAverage: avg,
+      todayRecordCount: todayRecords.length,
+      recentRecords: recent
+    };
+  }, [records]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-400 to-green-400 p-4 pb-20">
@@ -42,7 +68,7 @@ const HomePage = ({ exerciseRecords }) => {
             <div className="text-sm text-gray-600">평균 강도</div>
           </div>
           <div>
-            <div className="text-2xl font-bold text-green-600">{todayRecords.length}</div>
+            <div className="text-2xl font-bold text-green-600">{todayRecordCount}</div>
             <div className="text-sm text-gray-600">운동 횟수</div>
           </div>
         </div>
@@ -94,6 +120,8 @@ const HomePage = ({ exerciseRecords }) => {
     </div>
   );
 };
+
+HomePage.propTypes = {};
 
 export default HomePage;
 
